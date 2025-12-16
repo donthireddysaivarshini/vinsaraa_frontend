@@ -20,13 +20,12 @@ import Returns from "./components/Returns";
 import Contact from "./components/Contact";
 import Terms from "./components/Terms";
 import Privacy from "./components/Privacy";
-
+import Collection from "./pages/Collection";
 import Index from "./pages/Index";
 import AllProducts from "./pages/AllProducts";
 import ProductDetail from "./pages/ProductDetail";
 import NotFound from "./pages/NotFound";
-import Sleeved from "./pages/Sleeved";
-import Sleeveless from "./pages/Sleeveless";
+
 import Checkout from "./pages/Checkout";
 
 
@@ -93,8 +92,7 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/all-products" element={<AllProducts />} />
               <Route path="/product/:slug" element={<ProductDetail />} />
-              <Route path="/sleeved" element={<Sleeved />} />
-              <Route path="/sleeveless" element={<Sleeveless />} />
+              <Route path="/collections/:categorySlug" element={<Collection />} />
               <Route path="/about" element={<About />} />
               <Route path="/user" element={<User />} />
               <Route path="/login" element={<Login />} />
