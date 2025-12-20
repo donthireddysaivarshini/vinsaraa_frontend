@@ -7,7 +7,7 @@ import { storeService, orderService, authService } from "@/services/api";
 import { toast } from "sonner";
 
 const Checkout = () => {
-  const { cartItems, cartTotal } = useCart(); // cartTotal here is SUBTOTAL
+const { cartItems, cartTotal, removePurchasedItems } = useCart();
   const navigate = useNavigate();
 
   // --- STATE MANAGEMENT ---
@@ -188,6 +188,10 @@ const Checkout = () => {
 
     try {
       setIsPaying(true);
+  const purchasedItemKeys = cartItems.map(
+  (item) => `${item.sku}-${item.size}`
+);
+
 
       // --- 1) Create order on backend ---
       const payload = {
@@ -243,53 +247,50 @@ const Checkout = () => {
           contact: formData.phone,
           name: `${formData.firstName} ${formData.lastName}`,
         },
-        handler: async function (response: any) {
-          try {
-            // A. Verify Payment
-            await orderService.verifyPayment({
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            });
+handler: async function (response: any) {
+  try {
+    await orderService.verifyPayment({
+      razorpay_order_id: response.razorpay_order_id,
+      razorpay_payment_id: response.razorpay_payment_id,
+      razorpay_signature: response.razorpay_signature,
+    });
 
-            // B. SAVE ADDRESS (Logic inserted here as requested)
-            if (saveInfo) {
-              try {
-                // Note: Ensure the method name in your api.js is 'saveAddress'
-                await authService.saveAddress({
-                  label: 'Saved Address',
-                  address: formData.address,
-                  apartment: formData.apartment,
-                  city: formData.city,
-                  state: formData.state,
-                  zip_code: formData.pinCode,
-                  country: formData.country,
-                  phone: formData.phone,
-                  is_default: false,
-                });
-              } catch (err) {
-                console.error("Failed to save address", err);
-                // We don't block the order success if saving address fails
-              }
-            }
+    if (saveInfo) {
+      try {
+        await authService.saveAddress({
+          label: "Saved Address",
+          address: formData.address,
+          apartment: formData.apartment,
+          city: formData.city,
+          state: formData.state,
+          zip_code: formData.pinCode,
+          country: formData.country,
+          phone: formData.phone,
+          is_default: false,
+        });
+      } catch (err) {
+        console.error("Failed to save address", err);
+      }
+    }
 
-            // C. Clear Cart & Redirect
-            localStorage.removeItem('cart');
-            toast.success("Payment successful! Redirecting to orders...");
+    // ✅ CORRECT CART CLEANUP
+    removePurchasedItems(purchasedItemKeys);
 
-            setTimeout(() => {
-              navigate("/user");
-            }, 1500);
+    toast.success("Payment successful! Redirecting to orders...");
 
-            if (frontendOrderId) {
-              pollOrderStatus(frontendOrderId).catch(console.error);
-            }
-          } catch (err: any) {
-            const message = err?.error || "Payment verification failed. We'll confirm shortly.";
-            toast.error(message);
-            setIsPaying(false);
-          }
-        },
+    setTimeout(() => {
+      navigate("/user");
+    }, 1500);
+
+    if (frontendOrderId) {
+      pollOrderStatus(frontendOrderId).catch(console.error);
+    }
+  } catch (err: any) {
+    toast.error(err?.error || "Payment verification failed.");
+    setIsPaying(false);
+  }
+},
+
         modal: {
           ondismiss: () => {
             setIsPaying(false);
