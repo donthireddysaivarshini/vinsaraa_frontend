@@ -88,6 +88,21 @@ export const authService = {
     const response = await api.post('/auth/addresses/', address);
     return response.data;
   },
+
+  updateAddress: async (id: number, data: any) => {
+    const response = await api.patch(`/auth/addresses/${id}/`, data);
+    return response.data;
+  },
+
+  deleteAddress: async (id: number) => {
+    const response = await api.delete(`/auth/addresses/${id}/`);
+    return response.data;
+  },
+
+  setDefaultAddress: async (id: number) => {
+    const response = await api.post(`/auth/addresses/${id}/set-default/`);
+    return response.data;
+  },
 };
 
 export const storeService = {
@@ -135,7 +150,6 @@ export const orderService = {
     return response.data;
   },
 
-  // ✅ RENAMED from getOrderStatus to getOrderDetails to match your new component
   getOrderDetails: async (orderId: string | number) => {
     const response = await api.get(`/orders/${orderId}/status/`);
     return response.data;
@@ -148,9 +162,7 @@ export const orderService = {
     return response.data;
   },
 
-  // ✅ RENAMED from updateStatus to updateOrderStatus to match your new component
   updateOrderStatus: async (orderId: number, newStatus: string) => {
-    // We use 'api.patch' so the token header is added automatically by your interceptor
     const response = await api.patch(`/orders/${orderId}/update-status/`, { 
       order_status: newStatus 
     });
@@ -158,6 +170,4 @@ export const orderService = {
   }
 };
 
-// ✅ ADDED: Named exports to support your OrderHistory.tsx imports
-// This allows: import { getUserOrders, updateOrderStatus } from '../services/api';
 export const { getUserOrders, getOrderDetails, updateOrderStatus } = orderService;

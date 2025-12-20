@@ -1,17 +1,20 @@
 import { useState, useEffect, useMemo } from "react";
 import { useCart } from "@/pages/CartContext";
-import { ChevronDown, Info, Loader2 } from "lucide-react";
+import { ChevronDown, Info, Loader2, MapPin } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 // 1. FIXED: Added authService to imports
 import { storeService, orderService, authService } from "@/services/api";
 import { toast } from "sonner";
 
 const Checkout = () => {
-const { cartItems, cartTotal, removePurchasedItems } = useCart();
+  const { cartItems, cartTotal, removePurchasedItems } = useCart();
   const navigate = useNavigate();
 
   // --- STATE MANAGEMENT ---
+  // ✅ ADDED: checkingAuth state
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [loadingConfig, setLoadingConfig] = useState(true);
+  
   const [config, setConfig] = useState({
     shipping_flat_rate: 100,
     shipping_free_above: 2000,
@@ -25,7 +28,7 @@ const { cartItems, cartTotal, removePurchasedItems } = useCart();
   const [saveInfo, setSaveInfo] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState<any[]>([]);
-  // const [showSavedAddresses, setShowSavedAddresses] = useState(false); // Unused, commented out
+  const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -40,12 +43,49 @@ const { cartItems, cartTotal, removePurchasedItems } = useCart();
     country: "India"
   });
 
+  // ✅ ADDED: Authentication Check useEffect
+  useEffect(() => {
+    const token = localStorage.getItem("userToken");
+    
+    if (!token) {
+      // User is not logged in, redirect immediately
+      toast.error("Please sign in to proceed to checkout");
+      navigate("/user");
+    } else {
+      // User is logged in, stop checking and allow render
+      setCheckingAuth(false);
+      
+      // Fetch profile to auto-fill email
+      const fetchUserEmail = async () => {
+        try {
+          const user = await authService.getProfile();
+          if (user && user.email) {
+            setFormData(prev => ({ ...prev, email: user.email }));
+          }
+        } catch (err) {
+          console.error("Failed to fetch user profile", err);
+        }
+      };
+      fetchUserEmail();
+    }
+  }, [navigate]);
+
   // --- FETCH SAVED ADDRESSES ---
   useEffect(() => {
+    // Optional: wait for auth check
+    if (checkingAuth) return;
+
     const fetchAddresses = async () => {
       try {
         const data = await authService.getSavedAddresses();
-        setSavedAddresses(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        setSavedAddresses(list);
+
+        // Auto-fill if there's a default address
+        const defaultAddr = list.find((a: any) => a.is_default);
+        if (defaultAddr) {
+            selectAddress(defaultAddr);
+        }
       } catch (err) {
         console.error("Failed to load saved addresses", err);
       }
@@ -55,7 +95,7 @@ const { cartItems, cartTotal, removePurchasedItems } = useCart();
     if (token) {
       fetchAddresses();
     }
-  }, []);
+  }, [checkingAuth]); // Add dependency
 
   // --- FETCH CONFIGURATION (Shipping/Tax) ---
   useEffect(() => {
@@ -76,6 +116,26 @@ const { cartItems, cartTotal, removePurchasedItems } = useCart();
     };
     fetchConfig();
   }, []);
+
+  // --- HELPER: Select Address ---
+  const selectAddress = (addr: any) => {
+      setSelectedAddressId(addr.id);
+      // Split Name "John Doe" -> First "John", Last "Doe"
+      const nameParts = (addr.label || "").split(" "); 
+      setFormData(prev => ({
+          ...prev,
+          address: addr.address,
+          apartment: addr.apartment,
+          city: addr.city,
+          state: addr.state,
+          pinCode: addr.zip_code,
+          phone: addr.phone,
+          country: addr.country,
+          // Only overwrite name if not already manually entered or filled
+          firstName: prev.firstName || nameParts[0] || "", 
+          lastName: prev.lastName || nameParts.slice(1).join(" ") || ""
+      }));
+  };
 
   // --- CALCULATIONS ---
   const calculations = useMemo(() => {
@@ -188,10 +248,9 @@ const { cartItems, cartTotal, removePurchasedItems } = useCart();
 
     try {
       setIsPaying(true);
-  const purchasedItemKeys = cartItems.map(
-  (item) => `${item.sku}-${item.size}`
-);
-
+      const purchasedItemKeys = cartItems.map(
+        (item) => `${item.sku}-${item.size}`
+      );
 
       // --- 1) Create order on backend ---
       const payload = {
@@ -247,49 +306,49 @@ const { cartItems, cartTotal, removePurchasedItems } = useCart();
           contact: formData.phone,
           name: `${formData.firstName} ${formData.lastName}`,
         },
-handler: async function (response: any) {
-  try {
-    await orderService.verifyPayment({
-      razorpay_order_id: response.razorpay_order_id,
-      razorpay_payment_id: response.razorpay_payment_id,
-      razorpay_signature: response.razorpay_signature,
-    });
+        handler: async function (response: any) {
+          try {
+            await orderService.verifyPayment({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
 
-    if (saveInfo) {
-      try {
-        await authService.saveAddress({
-          label: "Saved Address",
-          address: formData.address,
-          apartment: formData.apartment,
-          city: formData.city,
-          state: formData.state,
-          zip_code: formData.pinCode,
-          country: formData.country,
-          phone: formData.phone,
-          is_default: false,
-        });
-      } catch (err) {
-        console.error("Failed to save address", err);
-      }
-    }
+            if (saveInfo && !selectedAddressId) { 
+              try {
+                await authService.saveAddress({
+                  label: "Saved Address", 
+                  address: formData.address,
+                  apartment: formData.apartment,
+                  city: formData.city,
+                  state: formData.state,
+                  zip_code: formData.pinCode,
+                  country: formData.country,
+                  phone: formData.phone,
+                  is_default: false,
+                });
+              } catch (err) {
+                console.error("Failed to save address", err);
+              }
+            }
 
-    // ✅ CORRECT CART CLEANUP
-    removePurchasedItems(purchasedItemKeys);
+            // ✅ CORRECT CART CLEANUP
+            removePurchasedItems(purchasedItemKeys);
 
-    toast.success("Payment successful! Redirecting to orders...");
+            toast.success("Payment successful! Redirecting to orders...");
 
-    setTimeout(() => {
-      navigate("/user");
-    }, 1500);
+            setTimeout(() => {
+              navigate("/user");
+            }, 1500);
 
-    if (frontendOrderId) {
-      pollOrderStatus(frontendOrderId).catch(console.error);
-    }
-  } catch (err: any) {
-    toast.error(err?.error || "Payment verification failed.");
-    setIsPaying(false);
-  }
-},
+            if (frontendOrderId) {
+              pollOrderStatus(frontendOrderId).catch(console.error);
+            }
+          } catch (err: any) {
+            toast.error(err?.error || "Payment verification failed.");
+            setIsPaying(false);
+          }
+        },
 
         modal: {
           ondismiss: () => {
@@ -308,7 +367,8 @@ handler: async function (response: any) {
     }
   };
 
-  if (loadingConfig) {
+  // ✅ UPDATED: Loading State Check
+  if (checkingAuth || loadingConfig) {
     return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
   }
 
@@ -332,24 +392,10 @@ handler: async function (response: any) {
               
               {/* Contact Section */}
               <div>
-                <div className="flex justify-between items-center mb-3 sm:mb-4">
-                  <h2 className="text-lg sm:text-xl font-semibold">Contact</h2>
-                  <Link to="/user">
-                    <button type="button" className="text-xs sm:text-sm text-blue-600 hover:underline">
-                      Sign in
-                    </button>
-                  </Link>
-                </div>
-                
-                <input
-                  type="email"
-                  name="email"
-                  placeholder="Email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
+                <h2 className="text-lg sm:text-xl font-semibold mb-2">Contact Info</h2>
+                <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded border border-gray-200">
+                  Logged in as: <span className="font-medium text-gray-900">{formData.email || "Loading..."}</span>
+                </p>
               </div>
 
               {/* Saved Addresses Section (Placed above delivery form) */}
@@ -361,17 +407,8 @@ handler: async function (response: any) {
                       <button
                         key={addr.id}
                         type="button"
-                        onClick={() => setFormData({
-                          ...formData,
-                          address: addr.address,
-                          apartment: addr.apartment,
-                          city: addr.city,
-                          state: addr.state,
-                          pinCode: addr.zip_code,
-                          phone: addr.phone,
-                          country: addr.country,
-                        })}
-                        className="w-full text-left p-2 bg-white border border-blue-200 rounded hover:border-blue-400 transition-colors text-xs"
+                        onClick={() => selectAddress(addr)}
+                        className={`w-full text-left p-2 bg-white border rounded hover:border-blue-400 transition-colors text-xs ${selectedAddressId === addr.id ? 'border-blue-600 ring-1 ring-blue-600' : 'border-blue-200'}`}
                       >
                         <p className="font-medium">{addr.label}</p>
                         <p className="text-gray-600">{addr.address}, {addr.city}</p>
@@ -386,14 +423,15 @@ handler: async function (response: any) {
                 <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Delivery</h2>
                 <div className="space-y-3 sm:space-y-4">
                   <div className="relative">
-                    <select
-                      name="country"
-                      value={formData.country}
-                      onChange={handleInputChange}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white cursor-pointer"
-                    >
-                      <option value="India">India</option>
-                    </select>
+                    <input
+                        type="text"
+                        name="country"
+                        value={formData.country}
+                        onChange={handleInputChange}
+                        placeholder="Country/Region"
+                        className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        required
+                    />
                     <label className="absolute -top-2 left-2 sm:left-3 px-1 bg-white text-xs text-gray-600">
                       Country/Region
                     </label>
@@ -450,19 +488,15 @@ handler: async function (response: any) {
                       required
                     />
                     <div className="relative">
-                      <select
+                      <input
+                        type="text"
                         name="state"
                         value={formData.state}
                         onChange={handleInputChange}
-                        className="w-full px-2 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-base border border-gray-300 rounded-md bg-white cursor-pointer"
-                      >
-                        <option value="Andhra Pradesh">Andhra Pradesh</option>
-                        <option value="Telangana">Telangana</option>
-                        <option value="Karnataka">Karnataka</option>
-                        <option value="Tamil Nadu">Tamil Nadu</option>
-                        <option value="Maharashtra">Maharashtra</option>
-                        <option value="Delhi">Delhi</option>
-                      </select>
+                        placeholder="State"
+                        className="w-full px-2 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-base border border-gray-300 rounded-md bg-white"
+                        required
+                      />
                     </div>
                     <input
                       type="text"
@@ -487,15 +521,17 @@ handler: async function (response: any) {
                     />
                   </div>
 
-                  <label className="flex items-start sm:items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={saveInfo}
-                      onChange={(e) => setSaveInfo(e.target.checked)}
-                      className="w-4 h-4 mt-0.5 sm:mt-0 text-blue-600 border-gray-300 rounded"
-                    />
-                    <span className="ml-2 text-xs sm:text-sm text-gray-600">Save this address for next time</span>
-                  </label>
+                  {!selectedAddressId && savedAddresses.length < 3 && (
+                      <label className="flex items-start sm:items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={saveInfo}
+                          onChange={(e) => setSaveInfo(e.target.checked)}
+                          className="w-4 h-4 mt-0.5 sm:mt-0 text-blue-600 border-gray-300 rounded"
+                        />
+                        <span className="ml-2 text-xs sm:text-sm text-gray-600">Save this address for next time</span>
+                      </label>
+                  )}
                 </div>
               </div>
               

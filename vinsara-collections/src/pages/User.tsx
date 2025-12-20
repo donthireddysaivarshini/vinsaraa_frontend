@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom"; 
-import { Package, MapPin, LogOut, ArrowLeft, Loader2, ChevronDown, ChevronLeft, ChevronRight, Truck, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { 
+  Package, MapPin, LogOut, ArrowLeft, Loader2, ChevronDown, 
+  ChevronLeft, ChevronRight, Truck, CheckCircle, Clock, AlertCircle, 
+  Trash2, Star, Plus 
+} from "lucide-react";
 import { toast } from "sonner";
 import { orderService, authService } from "@/services/api";
 
+// --- INTERFACES ---
 interface OrderItem {
   id: number;
   product_id: number;
@@ -25,24 +30,66 @@ interface Order {
   items: OrderItem[];
 }
 
+interface SavedAddress {
+  id: number;
+  label: string;
+  address: string;
+  apartment?: string;
+  city: string;
+  state: string;
+  zip_code: string;
+  country: string;
+  phone: string;
+  is_default: boolean;
+  first_name?: string;
+  last_name?: string;
+}
+
 const UserProfile = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'orders' | 'addresses'>('orders');
   
-  // Data State
-  const [addresses, setAddresses] = useState<any[]>([]); 
+  // --- ORDER STATE ---
   const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
-
-  // Admin State
   const [isAdmin, setIsAdmin] = useState(false);
-
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const ORDERS_PER_PAGE = 20;
 
+  // --- ADDRESS STATE ---
+  const [addresses, setAddresses] = useState<SavedAddress[]>([]);
+  const [loadingAddresses, setLoadingAddresses] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [submittingAddress, setSubmittingAddress] = useState(false);
+  
+  const [newAddress, setNewAddress] = useState({
+    label: 'Home',
+    first_name: '',
+    last_name: '',
+    address: '',
+    apartment: '',
+    city: '',
+    state: 'Telangana',
+    zip_code: '',
+    country: 'India',
+    phone: '',
+    is_default: false,
+  });
+
+  // --- 1. AUTH CHECK (Redirect immediately if no token) ---
   useEffect(() => {
+    const token = localStorage.getItem("userToken");
+    if (!token) {
+      navigate("/login");
+    }
+  }, [navigate]);
+
+  // --- 2. CHECK ADMIN ROLE (Only if token exists) ---
+  useEffect(() => {
+    const token = localStorage.getItem("userToken");
+    if (!token) return; // 🛑 STOP here if no token
+
     const checkUserRole = async () => {
       try {
         const user = await authService.getProfile();
@@ -56,11 +103,42 @@ const UserProfile = () => {
     checkUserRole();
   }, []);
 
+  // --- 3. FETCH DATA BASED ON TAB (Only if token exists) ---
+  useEffect(() => {
+    const token = localStorage.getItem("userToken");
+    if (!token) return; // 🛑 STOP here if no token
+
+    if (activeTab === 'orders') {
+      fetchOrders();
+    } else if (activeTab === 'addresses') {
+      fetchAddresses();
+    }
+  }, [activeTab]);
+
+  // --- ORDER FUNCTIONS ---
+  const fetchOrders = async () => {
+    try {
+      setLoadingOrders(true);
+      const data = await orderService.getUserOrders();
+      const ordersList = Array.isArray(data) ? data : data.results || [];
+      setAllOrders(ordersList);
+      setCurrentPage(1); 
+    } catch (error: any) {
+      console.error("Failed to load orders", error);
+      // Only show error toast if NOT 401 (handled by interceptor)
+      if (error?.response?.status !== 401) {
+        toast.error("Could not load orders");
+      }
+      setAllOrders([]);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
   const updateOrderStatus = async (orderId: number, newStatus: string) => {
     try {
       await orderService.updateOrderStatus(orderId, newStatus);
       toast.success("Order status updated");
-      
       setAllOrders(prevOrders => 
         prevOrders.map(order => 
           order.id === orderId ? { ...order, order_status: newStatus } : order
@@ -72,35 +150,90 @@ const UserProfile = () => {
     }
   };
 
-  useEffect(() => {
-    const token = localStorage.getItem("userToken");
-    if (!token) {
-      navigate("/login");
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    const fetchOrders = async () => {
-      try {
-        setLoadingOrders(true);
-        const data = await orderService.getUserOrders();
-        const ordersList = Array.isArray(data) ? data : data.results || [];
-        setAllOrders(ordersList);
-        setCurrentPage(1); 
-      } catch (error: any) {
-        console.error("Failed to load orders", error);
-        toast.error("Could not load orders");
-        setAllOrders([]);
-      } finally {
-        setLoadingOrders(false);
+  // --- ADDRESS FUNCTIONS ---
+  const fetchAddresses = async () => {
+    setLoadingAddresses(true);
+    try {
+      const data = await authService.getSavedAddresses();
+      const list = Array.isArray(data) ? data : data.results || [];
+      setAddresses(list);
+    } catch (err: any) {
+      console.error("Failed to fetch addresses", err);
+      if (err?.response?.status !== 401) {
+        toast.error("Could not load saved addresses");
       }
-    };
-
-    if (activeTab === 'orders') {
-      fetchOrders();
+      setAddresses([]);
+    } finally {
+      setLoadingAddresses(false);
     }
-  }, [activeTab]);
+  };
 
+  const handleAddressInput = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target as HTMLInputElement;
+    setNewAddress(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    }));
+  };
+
+  const handleAddAddress = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (addresses.length >= 3) {
+      toast.error("You can save up to 3 addresses only.");
+      return;
+    }
+    // Validation
+    if (!newAddress.address || !newAddress.city || !newAddress.zip_code || !newAddress.phone) {
+      toast.error("Please fill required fields.");
+      return;
+    }
+
+    try {
+      setSubmittingAddress(true);
+      await authService.saveAddress(newAddress);
+      toast.success("Address saved");
+      setShowAddForm(false);
+      // Reset form
+      setNewAddress({
+        label: 'Home',
+        first_name: '', last_name: '', 
+        address: '', apartment: '', 
+        city: '', state: 'Telangana', 
+        zip_code: '', country: 'India', 
+        phone: '', is_default: false,
+      });
+      fetchAddresses();
+    } catch (err: any) {
+      console.error("Save address error", err);
+      toast.error(err?.response?.data?.[0] || "Failed to save address");
+    } finally {
+      setSubmittingAddress(false);
+    }
+  };
+
+  const handleDeleteAddress = async (id: number) => {
+    try {
+      await authService.deleteAddress(id);
+      toast.success("Address deleted");
+      fetchAddresses();
+    } catch (err: any) {
+      console.error("Delete address error", err);
+      toast.error("Failed to delete address");
+    }
+  };
+
+  const handleSetDefault = async (id: number) => {
+    try {
+      await authService.setDefaultAddress(id);
+      toast.success("Default address updated");
+      fetchAddresses();
+    } catch (err: any) {
+      console.error("Set default error", err);
+      toast.error("Failed to set default");
+    }
+  };
+
+  // --- SHARED UTILS ---
   const handleLogout = () => {
     localStorage.removeItem("userToken");
     localStorage.removeItem('cart');
@@ -112,13 +245,9 @@ const UserProfile = () => {
     try {
       const date = new Date(dateString);
       return date.toLocaleDateString('en-IN', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
+        year: 'numeric', month: 'short', day: 'numeric',
       });
-    } catch {
-      return dateString;
-    }
+    } catch { return dateString; }
   };
 
   const filteredOrders = isAdmin 
@@ -138,36 +267,11 @@ const UserProfile = () => {
 
   const getStatusConfig = (status: string) => {
     switch (status) {
-      case 'Delivered':
-        return {
-          icon: <CheckCircle className="w-5 h-5" />,
-          colorClass: 'bg-green-100 text-green-700 border-green-200',
-          label: 'Delivered'
-        };
-      case 'Shipped':
-        return {
-          icon: <Truck className="w-5 h-5" />,
-          colorClass: 'bg-blue-100 text-blue-700 border-blue-200',
-          label: 'Shipped'
-        };
-      case 'Processing':
-        return {
-          icon: <Clock className="w-5 h-5" />,
-          colorClass: 'bg-amber-100 text-amber-700 border-amber-200',
-          label: 'Processing'
-        };
-      case 'Cancelled':
-        return {
-          icon: <AlertCircle className="w-5 h-5" />,
-          colorClass: 'bg-red-100 text-red-700 border-red-200',
-          label: 'Cancelled'
-        };
-      default:
-        return {
-          icon: <Package className="w-5 h-5" />,
-          colorClass: 'bg-gray-100 text-gray-700 border-gray-200',
-          label: status
-        };
+      case 'Delivered': return { icon: <CheckCircle className="w-5 h-5" />, colorClass: 'bg-green-100 text-green-700 border-green-200', label: 'Delivered' };
+      case 'Shipped': return { icon: <Truck className="w-5 h-5" />, colorClass: 'bg-blue-100 text-blue-700 border-blue-200', label: 'Shipped' };
+      case 'Processing': return { icon: <Clock className="w-5 h-5" />, colorClass: 'bg-amber-100 text-amber-700 border-amber-200', label: 'Processing' };
+      case 'Cancelled': return { icon: <AlertCircle className="w-5 h-5" />, colorClass: 'bg-red-100 text-red-700 border-red-200', label: 'Cancelled' };
+      default: return { icon: <Package className="w-5 h-5" />, colorClass: 'bg-gray-100 text-gray-700 border-gray-200', label: status };
     }
   };
 
@@ -176,10 +280,7 @@ const UserProfile = () => {
       <div className="container mx-auto px-4 md:px-8 max-w-6xl">
         
         {/* Back Button */}
-        <button 
-          onClick={() => navigate("/")} 
-          className="flex items-center gap-2 text-gray-500 hover:text-black mb-6 transition-colors"
-        >
+        <button onClick={() => navigate("/")} className="flex items-center gap-2 text-gray-500 hover:text-black mb-6 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to Home
         </button>
 
@@ -214,6 +315,8 @@ const UserProfile = () => {
 
           {/* Main Content Area */}
           <div className="lg:col-span-3">
+            
+            {/* --- ORDERS TAB --- */}
             {activeTab === 'orders' && (
               <div className="space-y-6">
                 <div className="flex justify-between items-center mb-2">
@@ -232,10 +335,7 @@ const UserProfile = () => {
                 ) : paginatedOrders.length === 0 ? (
                   <div className="text-center py-12 bg-white rounded-xl border border-dashed">
                     <p className="text-gray-500">No orders found.</p>
-                    <button 
-                      onClick={() => navigate("/all-products")} 
-                      className="text-black underline mt-2 font-medium hover:no-underline"
-                    >
+                    <button onClick={() => navigate("/all-products")} className="text-black underline mt-2 font-medium hover:no-underline">
                       Start Shopping
                     </button>
                   </div>
@@ -244,11 +344,10 @@ const UserProfile = () => {
                     <div className="space-y-6">
                       {paginatedOrders.map((order) => {
                         const statusConfig = getStatusConfig(order.order_status);
-                        
                         return (
                           <div key={order.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                             
-                            {/* Header Bar */}
+                            {/* Order Header */}
                             <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex flex-wrap gap-y-4 justify-between items-center text-sm">
                                 <div className="flex gap-8">
                                     <div>
@@ -282,31 +381,21 @@ const UserProfile = () => {
                                 </div>
                             </div>
 
-                            {/* Main Card Content */}
-                            <div 
-                              className="p-6 cursor-pointer"
-                              onClick={(e) => {
+                            {/* Order Body */}
+                            <div className="p-6 cursor-pointer" onClick={(e) => {
                                 if ((e.target as HTMLElement).tagName === 'SELECT') return;
                                 setExpandedOrderId(expandedOrderId === order.id ? null : order.id);
-                              }}
-                            >
+                              }}>
                               <div className="flex flex-col md:flex-row gap-6">
-                                
-                                {/* Left: Items */}
                                 <div className="flex-1">
                                     <div className="space-y-4">
                                         {order.items.slice(0, expandedOrderId === order.id ? undefined : 2).map((item, idx) => {
-                                            
-                                            // ✅ LOGIC: Generate slug from name if product_slug is missing
                                             const finalSlug = item.product_slug 
                                                 ? item.product_slug 
                                                 : item.product_name.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
-
                                             return (
                                               <div key={idx} className="flex gap-4 items-start group">
-                                                  
                                                   <div className="pt-1">
-                                                      {/* ✅ Product Name Link with Larger Font */}
                                                       <Link 
                                                           to={`/product/${finalSlug}`} 
                                                           className="font-serif text-xl md:text-2xl font-medium text-gray-900 hover:text-black hover:underline transition-colors block leading-tight"
@@ -314,12 +403,10 @@ const UserProfile = () => {
                                                       >
                                                           {item.product_name}
                                                       </Link>
-
                                                       <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
                                                           <span className="bg-gray-100 px-2 py-0.5 rounded text-xs text-gray-700 border border-gray-200">{item.variant_label}</span>
                                                           <span>Qty: {item.quantity}</span>
                                                       </div>
-
                                                       <p className="text-sm font-medium text-gray-900 mt-2">
                                                           {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(parseFloat(item.price))}
                                                       </p>
@@ -333,13 +420,11 @@ const UserProfile = () => {
                                     </div>
                                 </div>
 
-                                {/* Right: Status & Actions */}
                                 <div className="md:w-1/3 flex flex-col items-start md:items-end justify-center gap-4 border-t md:border-t-0 md:border-l border-gray-100 pt-4 md:pt-0 md:pl-6">
                                     <div className={`flex items-center gap-2 px-4 py-2 rounded-full border ${statusConfig.colorClass}`}>
                                         {statusConfig.icon}
                                         <span className="font-semibold text-sm">{statusConfig.label}</span>
                                     </div>
-
                                     {isAdmin && (
                                         <div className="w-full">
                                             <label className="text-xs text-gray-500 font-medium block mb-1">Update Status (Admin)</label>
@@ -356,7 +441,6 @@ const UserProfile = () => {
                                             </select>
                                         </div>
                                     )}
-
                                     <div className="flex items-center gap-1 text-blue-600 text-sm font-medium hover:underline mt-2">
                                         {expandedOrderId === order.id ? 'Hide Details' : 'View Order Details'}
                                         <ChevronDown className={`w-4 h-4 transition-transform ${expandedOrderId === order.id ? 'rotate-180' : ''}`} />
@@ -365,7 +449,7 @@ const UserProfile = () => {
                               </div>
                             </div>
 
-                            {/* Expanded Details: Address & Phone only */}
+                            {/* Expanded Details */}
                             {expandedOrderId === order.id && (
                               <div className="border-t border-gray-200 bg-gray-50 p-6 animate-in slide-in-from-top-2 duration-200">
                                 <div>
@@ -387,39 +471,22 @@ const UserProfile = () => {
                     {/* Pagination */}
                     {totalPages > 1 && (
                       <div className="flex items-center justify-center gap-2 mt-8 p-4 bg-white rounded-lg border border-gray-200">
-                        <button
-                          onClick={() => goToPage(currentPage - 1)}
-                          disabled={currentPage === 1}
-                          className="p-2 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
-                        >
+                        <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="p-2 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
                           <ChevronLeft className="w-5 h-5" />
                         </button>
-
                         <div className="flex items-center gap-1">
                           {Array.from({ length: totalPages }, (_, i) => i + 1)
                             .filter(page => Math.abs(page - currentPage) <= 1 || page === 1 || page === totalPages)
                             .map((page, index, array) => (
                               <React.Fragment key={page}>
                                 {index > 0 && array[index - 1] !== page - 1 && <span className="px-2">...</span>}
-                                <button
-                                  onClick={() => goToPage(page)}
-                                  className={`px-3 py-1 rounded transition-colors ${
-                                    currentPage === page
-                                      ? 'bg-black text-white font-semibold'
-                                      : 'hover:bg-gray-100'
-                                  }`}
-                                >
+                                <button onClick={() => goToPage(page)} className={`px-3 py-1 rounded transition-colors ${currentPage === page ? 'bg-black text-white font-semibold' : 'hover:bg-gray-100'}`}>
                                   {page}
                                 </button>
                               </React.Fragment>
                             ))}
                         </div>
-
-                        <button
-                          onClick={() => goToPage(currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                          className="p-2 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
-                        >
+                        <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="p-2 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
                           <ChevronRight className="w-5 h-5" />
                         </button>
                       </div>
@@ -429,23 +496,118 @@ const UserProfile = () => {
               </div>
             )}
 
+            {/* --- ADDRESSES TAB --- */}
             {activeTab === 'addresses' && (
               <div>
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-xl font-semibold">Saved Addresses</h2>
+                  {/* Show Add Button only if less than 3 addresses */}
+                  {addresses.length < 3 && !showAddForm && (
+                    <button 
+                      onClick={() => setShowAddForm(true)}
+                      className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-800 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" /> Add New Address
+                    </button>
+                  )}
                 </div>
-                {addresses.length === 0 ? (
-                  <div className="text-center py-12 bg-white rounded-xl border border-dashed">
-                    <p className="text-gray-500">No addresses saved.</p>
-                    <p className="text-xs text-gray-400 mt-1">Add them at checkout.</p>
+
+                {loadingAddresses ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {addresses.map((addr, idx) => (
-                      <div key={idx} className="bg-white p-4 rounded-lg border border-gray-200">
+                  <>
+                    {/* ADD ADDRESS FORM */}
+                    {showAddForm && (
+                      <form onSubmit={handleAddAddress} className="mb-8 p-6 bg-gray-50 rounded-lg border border-gray-200 animate-in slide-in-from-top-2">
+                        <h3 className="font-semibold mb-4">Add New Address</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input name="first_name" value={newAddress.first_name} onChange={handleAddressInput} placeholder="First name" className="px-3 py-2 border rounded" />
+                          <input name="last_name" value={newAddress.last_name} onChange={handleAddressInput} placeholder="Last name" className="px-3 py-2 border rounded" />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                          <input name="label" placeholder="Label (e.g. Home, Office)" value={newAddress.label} onChange={handleAddressInput} className="p-2 border rounded" required />
+                          <input name="phone" placeholder="Phone Number" value={newAddress.phone} onChange={handleAddressInput} className="p-2 border rounded" required />
+                          <input name="address" placeholder="Address" value={newAddress.address} onChange={handleAddressInput} className="md:col-span-2 p-2 border rounded" required />
+                          <input name="apartment" placeholder="Apartment (Optional)" value={newAddress.apartment} onChange={handleAddressInput} className="md:col-span-2 p-2 border rounded" />
+                          <input name="city" placeholder="City" value={newAddress.city} onChange={handleAddressInput} className="p-2 border rounded" required />
+                          <input name="zip_code" placeholder="Pin Code" value={newAddress.zip_code} onChange={handleAddressInput} className="p-2 border rounded" required />
+                          <select name="state" value={newAddress.state} onChange={handleAddressInput} className="p-2 border rounded bg-white">
+                            <option value="Telangana">Telangana</option>
+                            <option value="Andhra Pradesh">Andhra Pradesh</option>
+                            <option value="Karnataka">Karnataka</option>
+                            <option value="Tamil Nadu">Tamil Nadu</option>
+                            <option value="Maharashtra">Maharashtra</option>
+                            <option value="Delhi">Delhi</option>
+                          </select>
+                          <input name="country" placeholder="Country" value={newAddress.country} onChange={handleAddressInput} className="p-2 border rounded bg-gray-100" readOnly />
+                        </div>
+                        <div className="flex items-center gap-2 mt-4">
+                          <input type="checkbox" checked={newAddress.is_default} name="is_default" onChange={handleAddressInput} className="w-4 h-4" />
+                          <label className="text-sm">Set as default address</label>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                          <button type="submit" disabled={submittingAddress} className="bg-black text-white px-4 py-2 rounded text-sm hover:bg-gray-800 disabled:opacity-50">
+                            {submittingAddress ? 'Saving...' : 'Save Address'}
+                          </button>
+                          <button type="button" onClick={() => setShowAddForm(false)} className="bg-white border px-4 py-2 rounded text-sm hover:bg-gray-50">Cancel</button>
+                        </div>
+                      </form>
+                    )}
+
+                    {/* ADDRESS LIST */}
+                    {addresses.length === 0 && !showAddForm ? (
+                      <div className="text-center py-12 bg-white rounded-xl border border-dashed">
+                        <p className="text-gray-500">No addresses saved.</p>
+                        <button onClick={() => setShowAddForm(true)} className="text-black underline mt-2 font-medium">Add one now</button>
                       </div>
-                    ))}
-                  </div>
+                    ) : (
+                      <div className="grid gap-4">
+                        {addresses.map((addr) => (
+                          <div key={addr.id} className={`relative p-5 rounded-lg border transition-all ${addr.is_default ? "border-black bg-gray-50 shadow-sm" : "border-gray-200 bg-white"}`}>
+                            {addr.is_default && (
+                              <span className="absolute top-0 right-0 bg-black text-white text-[10px] uppercase font-bold px-2 py-1 rounded-bl-lg rounded-tr-sm">
+                                Default
+                              </span>
+                            )}
+                            
+                            <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                              <div>
+                                <h3 className="font-bold text-gray-900 flex items-center gap-2 text-lg">
+                                  {addr.label}
+                                </h3>
+                                <p className="text-sm text-gray-700 mt-2">{addr.address}</p>
+                                {addr.apartment && <p className="text-sm text-gray-700">{addr.apartment}</p>}
+                                <p className="text-sm text-gray-600 mt-1">{addr.city}, {addr.state} - {addr.zip_code}</p>
+                                <p className="text-sm text-gray-600 mt-1">Phone: <span className="font-medium text-gray-900">{addr.phone}</span></p>
+                              </div>
+                              
+                              <div className="flex gap-3">
+                                {/* SET DEFAULT BUTTON */}
+                                {!addr.is_default && (
+                                  <button 
+                                    onClick={() => handleSetDefault(addr.id)}
+                                    className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline border border-blue-200 px-3 py-1.5 rounded-md transition-colors"
+                                  >
+                                    <Star className="w-3 h-3" /> Set Default
+                                  </button>
+                                )}
+                                
+                                {/* DELETE BUTTON */}
+                                <button 
+                                  onClick={() => handleDeleteAddress(addr.id)}
+                                  className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700 hover:underline border border-red-200 px-3 py-1.5 rounded-md transition-colors"
+                                >
+                                  <Trash2 className="w-3 h-3" /> Remove
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
