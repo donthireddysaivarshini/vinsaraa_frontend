@@ -168,6 +168,21 @@ export const orderService = {
     });
     return response.data;
   }
+  
 };
 
 export const { getUserOrders, getOrderDetails, updateOrderStatus } = orderService;
+export const contentService = {
+  getHeroSlides: async () => {
+    const response = await api.get('/content/hero_slides/');
+    return response.data;
+  },
+  getPromoMessages: async () => {
+    const response = await api.get('/content/promos/');
+    return response.data;
+  },
+  getVideoConfig: async () => {
+    const response = await api.get('/content/video/');
+    return response.data;
+  }
+};

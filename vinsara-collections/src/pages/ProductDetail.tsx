@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { useCart } from "@/pages/CartContext";
 import { storeService } from "@/services/api";
 import Chart from "@/assets/Chart.jpeg";
+// ✅ 1. ADDED IMPORT
+import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
 const ProductDetail = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -190,8 +192,8 @@ const ProductDetail = () => {
                       <img src={item.url} alt={`View ${index}`} className="w-full h-full object-cover" />
                     ) : (
                       <div className="flex flex-col items-center justify-center text-muted-foreground">
-                         <PlayCircle className="w-8 h-8 mb-1" />
-                         <span className="text-[10px] font-medium uppercase">Video</span>
+                          <PlayCircle className="w-8 h-8 mb-1" />
+                          <span className="text-[10px] font-medium uppercase">Video</span>
                       </div>
                     )}
                   </button>
@@ -216,16 +218,25 @@ const ProductDetail = () => {
 
                 <AnimatePresence mode="wait">
                   {mediaList[selectedMediaIndex]?.type === 'image' ? (
-                    <motion.img
+                    // ✅ 2. WRAPPED IMAGE IN TRANSFORM COMPONENT FOR ZOOM
+                    <motion.div
                       key={`img-${selectedMediaIndex}`}
-                      src={mediaList[selectedMediaIndex].url}
-                      alt={product.title}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.3 }}
-                      className="w-full h-full object-cover" 
-                    />
+                      className="w-full h-full cursor-grab active:cursor-grabbing"
+                    >
+                      <TransformWrapper initialScale={1} minScale={1} maxScale={4}>
+                        <TransformComponent wrapperStyle={{ width: "100%", height: "100%" }} contentStyle={{ width: "100%", height: "100%" }}>
+                          <img 
+                            src={mediaList[selectedMediaIndex].url} 
+                            alt={product.title} 
+                            className="w-full h-full object-cover" 
+                          />
+                        </TransformComponent>
+                      </TransformWrapper>
+                    </motion.div>
                   ) : (
                     <motion.div
                       key={`vid-${selectedMediaIndex}`}
@@ -427,7 +438,7 @@ const ProductDetail = () => {
                         exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden"
                       >
-                         <div className="pb-4 text-sm text-muted-foreground leading-relaxed space-y-2">
+                          <div className="pb-4 text-sm text-muted-foreground leading-relaxed space-y-2">
                           <p><strong>Manufactured by:</strong> {product.manufacturer_name || "VINSARAA"}</p>
                           <p><strong>Address:</strong> {product.manufacturer_address || "Andhra Pradesh, India"}</p>
                           <p><strong>Country of Origin:</strong> {product.country_of_origin || "India"}</p>

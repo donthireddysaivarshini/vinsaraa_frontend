@@ -4,9 +4,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
 import logo from "@/assets/LOGOV.png";
 import { useCart } from "@/pages/CartContext";
-import { storeService } from "@/services/api"; // <--- IMPORT SERVICE
+import { storeService, contentService } from "@/services/api"; // <--- Import contentService
 
-const promoMessages = [
+// Fallback Promos in case API fails or is empty
+const DEFAULT_PROMOS = [
   "10% OFF YOUR FIRST PURCHASE! CODE: VINSARANEW",
   "MADE WITH LOVE AND PURE FABRICS",
   "FREE SHIPPING ON ORDERS OVER $100",
@@ -14,7 +15,6 @@ const promoMessages = [
   "NEW COLLECTION JUST ARRIVED"
 ];
 
-// Initial structure (Static parts)
 const INITIAL_MENU = [
   {
     title: "PRODUCTS",
@@ -25,7 +25,7 @@ const INITIAL_MENU = [
   },
   {
     title: "CLOTHING",
-    items: [] // <--- Empty initially, will fill from Backend
+    items: [] 
   },
 ];
 
@@ -34,30 +34,48 @@ interface HeaderProps {
 }
 
 const Header = ({ forceScrolled = false }: HeaderProps) => {
+  // Promo State
+  const [promoMessages, setPromoMessages] = useState(DEFAULT_PROMOS);
   const [currentPromoIndex, setCurrentPromoIndex] = useState(0);
+
+  // UI State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>("PRODUCTS");
   const [isScrolled, setIsScrolled] = useState(forceScrolled);
   const [isCartOpen, setIsCartOpen] = useState(false);
   
-  // NEW: State for the dynamic menu
+  // Menu State
   const [menuCategories, setMenuCategories] = useState(INITIAL_MENU);
 
   const { cartItems, cartCount, updateQuantity, removeFromCart, cartTotal } = useCart();
 
-  // 1. FETCH CATEGORIES FOR MENU
+  // 1. FETCH PROMO MESSAGES (NEW)
+  useEffect(() => {
+    const fetchPromos = async () => {
+      try {
+        const data = await contentService.getPromoMessages();
+        if (data && data.length > 0) {
+          // Backend returns objects {id, text, order}, we need just the text array
+          setPromoMessages(data.map((p: any) => p.text));
+        }
+      } catch (error) {
+        console.error("Using default promos due to error:", error);
+      }
+    };
+    fetchPromos();
+  }, []);
+
+  // 2. FETCH MENU CATEGORIES
   useEffect(() => {
     const fetchMenuCategories = async () => {
       try {
         const categories = await storeService.getCategories();
         
-        // Transform backend data to menu format
         const dynamicItems = categories.map((cat: any) => ({
             name: cat.name,
-            path: `/collections/${cat.slug}` // Dynamic link
+            path: `/collections/${cat.slug}`
         }));
 
-        // Update the menu structure
         setMenuCategories(prev => prev.map(section => {
             if (section.title === "CLOTHING") {
                 return { ...section, items: dynamicItems };
@@ -72,15 +90,15 @@ const Header = ({ forceScrolled = false }: HeaderProps) => {
     fetchMenuCategories();
   }, []);
 
-  // ... (Keep existing Promo Banner Interval Effect)
+  // Promo Rotation Timer
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentPromoIndex((prev) => (prev + 1) % promoMessages.length);
     }, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [promoMessages.length]); // Updated dependency
 
-  // ... (Keep existing Scroll Effect)
+  // Scroll Effect
   useEffect(() => {
     if (forceScrolled) {
       setIsScrolled(true);
@@ -99,7 +117,8 @@ const Header = ({ forceScrolled = false }: HeaderProps) => {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 font-sans">
-      {/* ... (Keep Promo Banner JSX exactly the same) ... */}
+      
+      {/* Promo Banner */}
       <div className="bg-promo text-promo-foreground py-2 text-center text-xs md:text-sm tracking-wider overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div
@@ -240,7 +259,6 @@ const Header = ({ forceScrolled = false }: HeaderProps) => {
                           className="overflow-hidden"
                         >
                           <ul className="pb-4 space-y-2">
-                            {/* Map dynamic items here */}
                             {category.items.length > 0 ? (
                                 category.items.map((item) => (
                                 <li key={item.name}>
@@ -268,7 +286,7 @@ const Header = ({ forceScrolled = false }: HeaderProps) => {
         )}
       </AnimatePresence>
 
-      {/* Cart Drawer - (Kept exactly as original) */}
+      {/* Cart Drawer */}
       <AnimatePresence>
         {isCartOpen && (
           <>

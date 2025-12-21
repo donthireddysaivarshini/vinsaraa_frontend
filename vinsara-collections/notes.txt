@@ -40,3 +40,7 @@ http://localhost:8080
 URIs 3 
 http://127.0.0.1:8080
 
+npm install react-zoom-pan-pinch
+npm install react-player
+npm install react-youtube
+
